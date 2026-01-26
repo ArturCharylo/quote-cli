@@ -1,0 +1,31 @@
+{
+  "name": "quote-cli-ts",
+  "version": "1.0.0",
+  "description": "A simple CLI tool to display random quotes",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "quote": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "cli",
+    "quotes",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^0.1.18",
+    "axios": "^1.13.3"
+  }
+}
