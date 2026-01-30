@@ -1,5 +1,6 @@
 import { defineTool, type ToolResultObject } from "@github/copilot-sdk";
 import axios from "axios";
+import { resolveSettings } from "../lib/settings.js";
 
 const DEBUG_MODE = process.env.DEBUG_MODE === "true";
 
@@ -68,8 +69,7 @@ export const servicePricingLookupTool = defineTool("servicePricingLookupTool", {
       console.log('[servicePricingLookupTool] invoked with args:', args);
     }
 
-    const NOTION_PAGE_ID = process.env.NOTION_PAGE_ID;
-    const NOTION_API_KEY = process.env.NOTION_API_KEY;
+    const { notionApiKey: NOTION_API_KEY, notionPageId: NOTION_PAGE_ID } = await resolveSettings();
 
     if (!NOTION_PAGE_ID || !NOTION_API_KEY) {
       const msg = "Notion credentials (NOTION_PAGE_ID / NOTION_API_KEY) are not configured in the environment.";
@@ -117,7 +117,11 @@ export const servicePricingLookupTool = defineTool("servicePricingLookupTool", {
   },
 });
 
-export const currencyConversionTool = defineTool<{ amount: number; fromCurrency: string; toCurrency: string }>("convert_currency", {
+export const currencyConversionTool = defineTool<{
+  amount: number;
+  fromCurrency: string;
+  toCurrency: string;
+}>("convert_currency", {
   description: "Convert an amount from one currency to another.",
   parameters: {
     type: "object",
@@ -139,19 +143,40 @@ export const currencyConversionTool = defineTool<{ amount: number; fromCurrency:
   },
   handler: async (args): Promise<ToolResultObject> => {
     const { amount, fromCurrency, toCurrency } = args;
-    try {
-      // Placeholder conversion logic; in a real implementation, call an API
-      const conversionRate = 0.86; // Example fixed rate
-      const convertedAmount = amount * conversionRate;
+    const { exchangeRateApiKey } = await resolveSettings();
 
+    if (!exchangeRateApiKey) {
       return {
-        textResultForLlm: `Converted amount: ${convertedAmount.toFixed(2)} ${toCurrency}`,
-        resultType: "success",
+        textResultForLlm:
+          "EXCHANGE_RATE_API_KEY is not configured. Run /settings to add it.",
+        resultType: "failure",
       };
     }
-    catch (error) {
+
+    const from = fromCurrency.toUpperCase();
+    const to = toCurrency.toUpperCase();
+
+    try {
+      const apiUrl = `https://v6.exchangerate-api.com/v6/${exchangeRateApiKey}/pair/${from}/${to}`;
+      const resp = await axios.get(apiUrl);
+      const data = resp.data;
+
+      if (!data || data.result !== "success" || typeof data.conversion_rate !== "number") {
+        return {
+          textResultForLlm: `Exchange rate API error: ${JSON.stringify(data)}`,
+          resultType: "failure",
+        };
+      }
+
+      const convertedAmount = amount * data.conversion_rate;
+
       return {
-        textResultForLlm: `Error during currency conversion: ${error as string || "unknown error"}`,
+        textResultForLlm: `Converted amount: ${convertedAmount.toFixed(2)} ${to}`,
+        resultType: "success",
+      };
+    } catch (error) {
+      return {
+        textResultForLlm: `Error during currency conversion: ${String(error)}`,
         resultType: "failure",
       };
     }

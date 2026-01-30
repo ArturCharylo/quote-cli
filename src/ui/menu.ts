@@ -11,6 +11,10 @@ const commands = [
     description: "Start AI-powered quote creation session by pasting in your brief from the client",
   },
   {
+    command: "/settings",
+    description: "Configure Notion and exchange rate API keys",
+  },
+  {
     command: "/help",
     description: "Show this help message",
   },

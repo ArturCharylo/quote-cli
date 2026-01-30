@@ -121,7 +121,10 @@ export class QuotationChatbot extends EventEmitter {
     }
   }
 
-  async startSession(brief: string): Promise<CopilotSession> {
+  async startSession(
+    brief: string,
+    options?: { skipInitialMessage?: boolean }
+  ): Promise<CopilotSession> {
     try {
       await this.init();
   
@@ -147,9 +150,10 @@ export class QuotationChatbot extends EventEmitter {
         console.log("[copilot] session created");
       }
 
-      // Add the brief as the first user message
-
-      await this.sendMessage(`Here is the brief for the quote:\n\n${brief}`);
+      if (!options?.skipInitialMessage) {
+        // Add the brief as the first user message
+        await this.sendMessage(`Here is the brief for the quote:\n\n${brief}`);
+      }
   
       // Subscribe to session events and re-emit them
       this.session.on((data) => {

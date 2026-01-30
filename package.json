@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "quote": "./dist/index.js"
+    "quote": "./bin/quote.js"
   },
   "scripts": {
     "build": "tsc",
