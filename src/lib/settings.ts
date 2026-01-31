@@ -85,6 +85,6 @@ export async function resolveSettings(): Promise<{
     notionApiKey: settings.notionApiKey ?? (process.env.NOTION_API_KEY as string),
     notionPageId: settings.notionPageId ?? (process.env.NOTION_PAGE_ID as string),
     exchangeRateApiKey: settings.exchangeRateApiKey ?? (process.env.EXCHANGE_RATE_API_KEY as string),
-    systemPrompt: settings.systemPrompt,
+    systemPrompt: settings.systemPrompt ?? "",
   };
 }
