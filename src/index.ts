@@ -147,6 +147,26 @@ async function promptQuestion(mainRl: readline.Interface, question: string): Pro
   });
 }
 
+async function collectMultilineInput(
+  mainRl: readline.Interface,
+  sentinel = "."
+): Promise<string> {
+  return new Promise((resolve) => {
+    const lines: string[] = [];
+    const handler = (line: string) => {
+      if (line.trim() === sentinel) {
+        mainRl.removeListener("line", handler);
+        resolve(lines.join("\n"));
+        return;
+      }
+      lines.push(line);
+    };
+    mainRl.on("line", handler);
+    mainRl.setPrompt("> ");
+    mainRl.prompt();
+  });
+}
+
 async function settingsFlow(mainRl: readline.Interface): Promise<void> {
   const mainLineListeners = mainRl.listeners("line").slice();
   mainLineListeners.forEach((l) => mainRl.removeListener("line", l as any));
@@ -191,6 +211,60 @@ async function settingsFlow(mainRl: readline.Interface): Promise<void> {
     console.log(`EXCHANGE_RATE_API_KEY: ${status(exchangeRateApiKey)}\n`);
   } catch (error) {
     console.log("\n❌ Failed to update settings.\n");
+    if (DEBUG_MODE) console.error(error);
+  } finally {
+    mainLineListeners.forEach((l) => mainRl.on("line", l as any));
+    mainRl.setPrompt("\x1b[1m\x1b[94m👀 Select function:\x1b[0m ");
+    mainRl.prompt();
+  }
+}
+
+async function promptFlow(mainRl: readline.Interface): Promise<void> {
+  const mainLineListeners = mainRl.listeners("line").slice();
+  mainLineListeners.forEach((l) => mainRl.removeListener("line", l as any));
+
+  try {
+    const settings = await loadSettings();
+    const currentPrompt = settings.systemPrompt;
+
+    console.log("\n📝 System Prompt\n");
+    if (currentPrompt && currentPrompt.trim()) {
+      console.log("Current system prompt (preview):");
+      const preview = currentPrompt.length > 300 ? `${currentPrompt.slice(0, 300)}...` : currentPrompt;
+      console.log(`${preview}\n`);
+    } else {
+      console.log("No custom system prompt is set.\n");
+    }
+
+    console.log("Paste the new system prompt below.");
+    console.log("Finish by entering a single line with a dot (.)");
+    console.log("Type 'clear' to remove the custom prompt.\n");
+
+    mainRl.resume();
+    const firstLine = await promptQuestion(mainRl, "> ");
+    const trimmed = firstLine.trim();
+
+    if (trimmed.toLowerCase() === "clear") {
+      await updateSettings({ systemPrompt: "" });
+      console.log("\n✅ System prompt cleared.\n");
+    } else {
+      let promptText = firstLine;
+      if (trimmed !== ".") {
+        const rest = await collectMultilineInput(mainRl);
+        promptText = [firstLine, rest].filter(Boolean).join("\n");
+      } else {
+        promptText = "";
+      }
+
+      if (!promptText.trim()) {
+        console.log("\n⚠️ Empty prompt detected. No changes made.\n");
+      } else {
+        await updateSettings({ systemPrompt: promptText });
+        console.log("\n✅ System prompt updated.\n");
+      }
+    }
+  } catch (error) {
+    console.log("\n❌ Failed to update system prompt.\n");
     if (DEBUG_MODE) console.error(error);
   } finally {
     mainLineListeners.forEach((l) => mainRl.on("line", l as any));
@@ -694,6 +768,9 @@ async function runCli() {
           break;
         case "/settings":
           await settingsFlow(mainRl);
+          break;
+        case "/prompt":
+          await promptFlow(mainRl);
           break;
         case "/create":
           console.log("\n❌ Usage: /create <brief>\n");

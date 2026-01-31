@@ -6,6 +6,7 @@ export interface SettingsStore {
   notionApiKey?: string | undefined;
   notionPageId?: string | undefined;
   exchangeRateApiKey?: string | undefined;
+  systemPrompt?: string | undefined;
 }
 
 const DEFAULT_SETTINGS_PATH = path.join(os.homedir(), ".quote-cli", "settings.json");
@@ -29,6 +30,9 @@ export async function loadSettings(): Promise<SettingsStore> {
     }
     return parsed;
   } catch (error: any) {
+    if (error && error.code === "ENOENT") {
+      return {};
+    }
     throw error;
   }
 }
@@ -45,6 +49,7 @@ export async function updateSettings(
     notionApiKey?: string | null;
     notionPageId?: string | null;
     exchangeRateApiKey?: string | null;
+    systemPrompt?: string | null;
   }
 ): Promise<SettingsStore> {
   const existing = await loadSettings();
@@ -56,11 +61,14 @@ export async function updateSettings(
     partial.exchangeRateApiKey === null
       ? undefined
       : partial.exchangeRateApiKey ?? existing.exchangeRateApiKey;
+  const nextSystemPrompt =
+    partial.systemPrompt === null ? undefined : partial.systemPrompt ?? existing.systemPrompt;
 
   const merged: SettingsStore = {
     ...(nextNotionApiKey !== undefined ? { notionApiKey: nextNotionApiKey } : {}),
     ...(nextNotionPageId !== undefined ? { notionPageId: nextNotionPageId } : {}),
     ...(nextExchangeRateApiKey !== undefined ? { exchangeRateApiKey: nextExchangeRateApiKey } : {}),
+    ...(nextSystemPrompt !== undefined ? { systemPrompt: nextSystemPrompt } : {}),
   };
   await saveSettings(merged);
   return merged;
@@ -70,11 +78,13 @@ export async function resolveSettings(): Promise<{
   notionApiKey?: string;
   notionPageId?: string;
   exchangeRateApiKey?: string;
+  systemPrompt?: string;
 }> {
   const settings = await loadSettings();
   return {
-    notionApiKey: settings.notionApiKey ?? process.env.NOTION_API_KEY as string,
-    notionPageId: settings.notionPageId ?? process.env.NOTION_PAGE_ID as string,
-    exchangeRateApiKey: settings.exchangeRateApiKey ?? process.env.EXCHANGE_RATE_API_KEY as string,
+    notionApiKey: settings.notionApiKey ?? (process.env.NOTION_API_KEY as string),
+    notionPageId: settings.notionPageId ?? (process.env.NOTION_PAGE_ID as string),
+    exchangeRateApiKey: settings.exchangeRateApiKey ?? (process.env.EXCHANGE_RATE_API_KEY as string),
+    systemPrompt: settings.systemPrompt,
   };
 }

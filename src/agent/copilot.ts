@@ -1,10 +1,11 @@
 import { CopilotClient, CopilotSession } from "@github/copilot-sdk";
 import { EventEmitter } from "events";
 import { currencyConversionTool, servicePricingLookupTool } from "./tools.js";
+import { resolveSettings } from "../lib/settings.js";
 
 const DEBUG_MODE = process.env.DEBUG_MODE === "true";
 
-const SYSTEM_PROMPT = `
+const DEFAULT_SYSTEM_PROMPT = `
   <background>
   You are a pricing and quotation chatbot agent that has a direct communication channel with the user. You provide accurate and competitive pricing quotes based on user requests. You are an expert in the influencer marketing industry so you know how to price campaigns effectively.
   You are pricing campaigns for Tom Shaw, a programming and tech content creator with a focus on software development, AI, and technology trends.
@@ -135,6 +136,10 @@ export class QuotationChatbot extends EventEmitter {
       }
 
       // Create session with quote brief context
+
+      const { systemPrompt } = await resolveSettings();
+      const promptToUse =
+        systemPrompt && systemPrompt.trim().length > 0 ? systemPrompt : DEFAULT_SYSTEM_PROMPT;
   
       this.session = await copilot.createSession({
         sessionId: `quote-session-${Date.now()}`,
@@ -143,7 +148,7 @@ export class QuotationChatbot extends EventEmitter {
         tools: [currencyConversionTool, servicePricingLookupTool],
         systemMessage: {
           "mode": "append",
-          "content": SYSTEM_PROMPT
+          "content": promptToUse
         }
       });
       if (DEBUG_MODE) {

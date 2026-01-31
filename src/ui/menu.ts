@@ -15,6 +15,10 @@ const commands = [
     description: "Configure Notion and exchange rate API keys",
   },
   {
+    command: "/prompt",
+    description: "Update the system prompt used for quotes",
+  },
+  {
     command: "/help",
     description: "Show this help message",
   },
