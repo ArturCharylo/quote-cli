@@ -2,17 +2,29 @@
 
 A small, user-focused CLI for generating professional project proposal quotes (estimates) for clients, built with TypeScript.
 
+This tool is ideal for freelancers, consultants, and small agencies who want to generate quick, consistent project estimates directly from the terminal.
+
 Originally this tool was built as a web interface using Streamlit and Python (https://github.com/IAmTomShaw/quotation-agent), however I wanted to explore building a CLI tool using TypeScript and Node.js that could be instantly run from the terminal at any time.
 
 ![Screenshot Placeholder](./assets/cli-preview.png)
 
-> **⚠️ Disclaimer:** This project requires the [GitHub Copilot CLI](https://github.com/features/copilot/cli) to be installed and a valid GitHub Copilot subscription — AI‑driven quote generation features will not work without these prerequisites.
+## ⚠️ Prerequisites & Disclaimer
+
+This project requires the [GitHub Copilot CLI](https://github.com/features/copilot/cli) to be installed and a valid GitHub Copilot subscription.  
+AI-driven quote generation features will **not work** without these prerequisites.
+
+You will also need to configure the following when running the CLI for the first time:
+- `NOTION_API_KEY`
+- `NOTION_PAGE_ID`
+- `EXCHANGE_RATE_API_KEY`
+
+These can be set using the `/settings` command inside the CLI.
 
 ## 📋 Features
 
-- **Generate Proposal Quote:** Create a professional project proposal (estimate) from client briefs.
-- **List Quotes:** Show saved templates and previously generated quotes.
-- **Persistent Storage:** Quotes and templates are persisted using a lightweight file-based storage (see `lib/storage.ts`).
+- **Generate Proposal Quote:** Turn client briefs into professional, client-ready project proposals (estimates).
+- **List Quotes:** View saved templates and previously generated quotes.
+- **Persistent Storage:** Quotes and templates are saved locally using a lightweight file-based storage (see `lib/storage.ts`).
 
 ## Required Third-Party Integrations
 
