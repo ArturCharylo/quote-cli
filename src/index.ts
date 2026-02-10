@@ -12,6 +12,8 @@ import {
   type StoredQuote,
 } from "./lib/storage.js";
 import { loadSettings, updateSettings } from "./lib/settings.js";
+import { createSpinner } from "./ui/spinner.js";
+import { exit } from "process";
 
 const DEBUG_MODE = process.env.DEBUG_MODE === "true";
 const MAX_HISTORY_MESSAGES = 20;
@@ -717,21 +719,20 @@ async function runCli() {
     // Check that the user has access to Copilot and is logged in
 
     // Show "checking auth message with spinner"
-    process.stdout.write("\x1b[1m\x1b[34m🔒 Checking Copilot authentication...\x1b[0m");
-    
+    const spinner = createSpinner("Checking Copilot authentication...");
+    spinner.start();
+
     const authStatus = await checkAuth();
 
     // Clear the checking auth line
     process.stdout.write("\x1b[1A\x1b[2K");
-    
+
     if (!authStatus.isAuthenticated) {
-      console.log("\n❌ You are not authenticated with GitHub Copilot. Please log in and try again.\n");
-      return;
+      spinner.stop("\n\x1b[1m\x1b[31m❌ You are not authenticated with GitHub Copilot. Please log in and try again.");
+      exit(1);
     }
 
-    console.log(`\n\x1b[1;94m✅ Logged in as ${authStatus.login}! You can now use the Quote CLI.\x1b[0m\n`);
-
-
+    spinner.stop(`\n\x1b[1;94m✅ Logged in as ${authStatus.login}! You can now use the Quote CLI.\x1b[0m\n`);
     // Show Menu
 
     displayMenu();
