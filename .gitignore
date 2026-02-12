@@ -8,4 +8,4 @@ dist/
 build/
 .cache/
 .DS_Store
-bin/
+bin/*.cjs
