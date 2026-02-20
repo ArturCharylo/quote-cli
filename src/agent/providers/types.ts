@@ -14,6 +14,13 @@ export interface AIProvider {
   initialize(): Promise<void>;
 
   /**
+   * Starts a new chat session with the provided brief.
+   * * @param brief The initial context or requirements for the quote.
+   * @param options Configuration options for the session start.
+   */
+  startSession(brief: string, options?: { skipInitialMessage?: boolean }): Promise<void>;
+
+  /**
    * Sends a message to the AI and handles the response
    * @param message User input string
    */

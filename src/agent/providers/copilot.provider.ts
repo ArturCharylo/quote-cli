@@ -1,7 +1,8 @@
 import { CopilotClient, CopilotSession } from "@github/copilot-sdk";
 import { EventEmitter } from "events";
-import { currencyConversionTool, servicePricingLookupTool } from "./tools.js";
-import { resolveSettings } from "../lib/settings.js";
+import { currencyConversionTool, servicePricingLookupTool } from "../tools.js";
+import { resolveSettings } from "../../lib/settings.js";
+import type { AIProvider } from "./types.js";
 
 const DEBUG_MODE = process.env.DEBUG_MODE === "true";
 
@@ -61,6 +62,11 @@ const DEFAULT_SYSTEM_PROMPT = `
   </output>`
 ;
 
+export interface AgentMessageReceived {
+  type: "assistant.message" | "tool.execution_start" | "tool.execution_complete" | "session.idle";
+  content: string;
+}
+
 let client: CopilotClient | null = null;
 
 async function getClient(): Promise<CopilotClient> {
@@ -71,35 +77,16 @@ async function getClient(): Promise<CopilotClient> {
   return client;
 }
 
-export interface SessionEvents {
-  message: (data: AgentMessageReceived) => void;
-  thinking: () => void;
-  error: (error: Error) => void;
-  ended: () => void;
-}
-
-export interface AgentMessageReceived {
-  type: "assistant.message" | "tool.execution_start" | "tool.execution_complete" | "session.idle";
-  content: string;
-}
-
-export interface AuthStatus {
-  isAuthenticated: boolean;
-  login?: string | undefined;
-  authType?: "user" | "env" | "gh-cli" | "hmac" | "api-key" | "token" | undefined;
-  statusMessage?: string | undefined;
-}
-
-export async function checkAuth(): Promise<AuthStatus> {
-  const client = new CopilotClient({
+export async function checkAuth(): Promise<any> {
+  const copilotClient = new CopilotClient({
     autoStart: true,
     autoRestart: false,
   });
 
   try {
-    await client.start();
-    const status = await client.getAuthStatus();
-    await client.stop();
+    await copilotClient.start();
+    const status = await copilotClient.getAuthStatus();
+    await copilotClient.stop();
     return {
       isAuthenticated: status.isAuthenticated,
       login: status.login,
@@ -108,7 +95,7 @@ export async function checkAuth(): Promise<AuthStatus> {
     };
   } catch {
     try {
-      await client.forceStop();
+      await copilotClient.forceStop();
     } catch {
       // Ignore cleanup errors
     }
@@ -116,27 +103,36 @@ export async function checkAuth(): Promise<AuthStatus> {
   }
 }
 
-export class QuotationChatbot extends EventEmitter {
-  private client: CopilotClient | null = null;
+/**
+ * GitHub Copilot implementation of the AIProvider interface
+ */
+export class CopilotProvider extends EventEmitter implements AIProvider {
+  readonly id = "github-copilot";
+  readonly name = "GitHub Copilot";
+  
+  private copilotClient: CopilotClient | null = null;
   private session: CopilotSession | null = null;
   private accumulatedContent: string = "";
 
-  constructor(brief: string) {
+  constructor() {
     super();
   }
 
-  on<K extends keyof SessionEvents>(event: K, listener: SessionEvents[K]): this {
-    return super.on(event, listener);
+  // Implementation of AIProvider.onMessage
+  onMessage(callback: (content: string) => void): void {
+    this.on("message", (data: AgentMessageReceived) => {
+      if (data.type === "assistant.message") {
+        callback(data.content);
+      }
+    });
   }
 
-  emit<K extends keyof SessionEvents>(event: K, ...args: Parameters<SessionEvents[K]>): boolean {
-    return super.emit(event, ...args);
-  }
+  async initialize(): Promise<void> {
+    if (!this.copilotClient) {
+      this.copilotClient = await getClient();
+    }
 
-  async init() {
-    this.client = await getClient();
-    // Check authentication status before creating session
-    const authStatus = await this.client.getAuthStatus();
+    const authStatus = await this.copilotClient.getAuthStatus();
     if (!authStatus.isAuthenticated) {
       throw new Error(
         "Not authenticated with GitHub Copilot.\n\n" +
@@ -148,40 +144,23 @@ export class QuotationChatbot extends EventEmitter {
   async startSession(
     brief: string,
     options?: { skipInitialMessage?: boolean }
-  ): Promise<CopilotSession> {
+  ): Promise<void> {
     try {
-      await this.init();
-  
-      const copilot = this.client;
-  
-      if (!copilot) {
-        throw new Error("Copilot client not initialized. Call init() first.");
-      }
-
-      // Create session with quote brief context
-
+      if (!this.copilotClient) await this.initialize();
+      
       const { systemPrompt } = await resolveSettings();
-      const promptToUse =
-        systemPrompt && systemPrompt.trim().length > 0 ? systemPrompt : DEFAULT_SYSTEM_PROMPT;
+      const promptToUse = systemPrompt?.trim() ? systemPrompt : DEFAULT_SYSTEM_PROMPT;
   
-      this.session = await copilot.createSession({
+      this.session = await this.copilotClient!.createSession({
         sessionId: `quote-session-${Date.now()}`,
         model: "gpt-4o-mini",
         streaming: true,
         tools: [currencyConversionTool, servicePricingLookupTool],
         systemMessage: {
-          "mode": "append",
-          "content": promptToUse
+          mode: "append",
+          content: promptToUse
         }
       });
-      if (DEBUG_MODE) {
-        console.log("[copilot] session created");
-      }
-
-      if (!options?.skipInitialMessage) {
-        // Add the brief as the first user message
-        await this.sendMessage(`Here is the brief for the quote:\n\n${brief}`);
-      }
   
       // Subscribe to session events and re-emit them
       this.session.on((data) => {
@@ -261,22 +240,23 @@ export class QuotationChatbot extends EventEmitter {
         }
       });
   
-      return this.session;
-    }
-    catch (error) {
+      // Optionally send the initial brief into the session
+      if (!options?.skipInitialMessage) {
+        await this.sendMessage(`Here is the brief for the quote:\n\n${brief}`);
+      }
+    } catch (error) {
       console.log("\n❌ Failed to start Copilot session. Please check your authentication and try again.\n");
       throw error;
     }
-
   }
 
-  async sendMessage(message: string) {
+  async sendMessage(message: string): Promise<void> {
     // Reset accumulated content for new interaction
     this.accumulatedContent = "";
     await this.session?.send({ prompt: message });
   }
 
-  async endSession() {
+  async endSession(): Promise<void> {
     if (this.session) {
       await this.session.destroy();
       this.emit("ended");
@@ -285,7 +265,7 @@ export class QuotationChatbot extends EventEmitter {
 }
 
 export async function listSessions() {
-  const copilot = await getClient();
-  const sessions = await copilot.listSessions();
+  const copilotClient = await getClient();
+  const sessions = await copilotClient.listSessions();
   return sessions;
 }

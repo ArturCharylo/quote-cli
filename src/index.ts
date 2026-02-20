@@ -1,7 +1,8 @@
 
 import * as readline from "readline";
 import { displayHeader } from "./ui/header.js";
-import { checkAuth, QuotationChatbot } from "./agent/copilot.js";
+import { CopilotProvider, checkAuth } from "./agent/providers/copilot.provider.js";
+import type { AIProvider } from "./agent/providers/types.js";
 import { displayMenu } from "./ui/menu.js";
 import {
   appendQuoteSession,
@@ -310,8 +311,7 @@ async function createQuoteFlow(brief: string, mainRl: readline.Interface): Promi
       mainRl.pause();
 
       // init the chatbot session here
-
-      const agent = new QuotationChatbot(brief.trim());
+      const agent = new CopilotProvider();
       const sessionId = generateSessionId();
       const sessionCreatedAt = new Date().toISOString();
       const storedMessages: StoredMessage[] = [];
@@ -486,7 +486,7 @@ async function openQuoteFlow(session: StoredQuote, mainRl: readline.Interface): 
     mainLineListeners.forEach((l) => mainRl.removeListener("line", l as any));
     mainRl.pause();
 
-    const agent = new QuotationChatbot(session.brief);
+    const agent: AIProvider = new CopilotProvider();
     const storedMessages: StoredMessage[] = [...session.messages];
     let finalSummary: string | undefined = session.finalSummary;
 
