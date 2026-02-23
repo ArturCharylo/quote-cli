@@ -22,6 +22,8 @@ export class OpenAIProvider extends EventEmitter implements AIProvider {
   private client: OpenAI | null = null;
   private messageHistory: OpenAI.Chat.ChatCompletionMessageParam[] = [];
 
+  public session = new EventEmitter();
+
   constructor() {
     super();
   }
@@ -104,6 +106,8 @@ export class OpenAIProvider extends EventEmitter implements AIProvider {
         type: "assistant.message",
         content: fullResponse
       } as AgentMessageReceived);
+
+      this.session.emit("session.idle", {type: "session.idle"});
 
     } catch (error) {
       if (DEBUG_MODE) console.error("[openai] Error generating response:", error);
