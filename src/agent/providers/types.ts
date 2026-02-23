@@ -37,3 +37,13 @@ export interface AIProvider {
    */
   onMessage(callback: (content: string) => void): void;
 }
+
+/*
+  * Standardized message format for incoming messages from providers
+  * This can be extended in the future to include metadata, message types, etc.
+  * For now, it's a simple structure to allow the OpenAI provider to emit messages in a consistent way.
+*/
+export interface AgentMessageReceived{
+  type: string;
+  content: string;
+}

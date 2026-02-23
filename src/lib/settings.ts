@@ -4,6 +4,8 @@ import path from "path";
 
 export interface SettingsStore {
   notionApiKey?: string | undefined;
+  openaiApiKey?: string | undefined;
+  selectedProvider?: string | undefined;
   notionPageId?: string | undefined;
   exchangeRateApiKey?: string | undefined;
   systemPrompt?: string | undefined;
@@ -50,6 +52,8 @@ export async function updateSettings(
     notionPageId?: string | null;
     exchangeRateApiKey?: string | null;
     systemPrompt?: string | null;
+    openaiApiKey?: string | undefined;
+    selectedProvider?: string | undefined;
   }
 ): Promise<SettingsStore> {
   const existing = await loadSettings();
@@ -63,12 +67,18 @@ export async function updateSettings(
       : partial.exchangeRateApiKey ?? existing.exchangeRateApiKey;
   const nextSystemPrompt =
     partial.systemPrompt === null ? undefined : partial.systemPrompt ?? existing.systemPrompt;
+  const nextOpenAIApiKey =
+    partial.openaiApiKey === null ? undefined : partial.openaiApiKey ?? existing.openaiApiKey;
+  const nextSelectedProvider =
+    partial.selectedProvider === null ? undefined : partial.selectedProvider ?? existing.selectedProvider;
 
   const merged: SettingsStore = {
     ...(nextNotionApiKey !== undefined ? { notionApiKey: nextNotionApiKey } : {}),
     ...(nextNotionPageId !== undefined ? { notionPageId: nextNotionPageId } : {}),
     ...(nextExchangeRateApiKey !== undefined ? { exchangeRateApiKey: nextExchangeRateApiKey } : {}),
     ...(nextSystemPrompt !== undefined ? { systemPrompt: nextSystemPrompt } : {}),
+    ...(nextOpenAIApiKey !== undefined ? { openaiApiKey: nextOpenAIApiKey } : {}),
+    ...(nextSelectedProvider !== undefined ? { selectedProvider: nextSelectedProvider } : {}),
   };
   await saveSettings(merged);
   return merged;
@@ -79,6 +89,8 @@ export async function resolveSettings(): Promise<{
   notionPageId?: string;
   exchangeRateApiKey?: string;
   systemPrompt?: string;
+  openaiApiKey?: string | undefined;
+  selectedProvider?: string | undefined;
 }> {
   const settings = await loadSettings();
   return {
@@ -86,5 +98,7 @@ export async function resolveSettings(): Promise<{
     notionPageId: settings.notionPageId ?? (process.env.NOTION_PAGE_ID as string),
     exchangeRateApiKey: settings.exchangeRateApiKey ?? (process.env.EXCHANGE_RATE_API_KEY as string),
     systemPrompt: settings.systemPrompt ?? "",
+    openaiApiKey: settings.openaiApiKey ?? (process.env.OPENAI_API_KEY as string),
+    selectedProvider: settings.selectedProvider ?? "github-copilot",
   };
 }
