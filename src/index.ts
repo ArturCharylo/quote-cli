@@ -1,7 +1,7 @@
-
 import * as readline from "readline";
 import { displayHeader } from "./ui/header.js";
-import { CopilotProvider, checkAuth } from "./agent/providers/copilot.provider.js";
+import { CopilotProvider } from "./agent/providers/copilot.provider.js";
+import { OpenAIProvider } from "./agent/providers/openai.provider.js";
 import type { AIProvider } from "./agent/providers/types.js";
 import { displayMenu } from "./ui/menu.js";
 import {
@@ -12,16 +12,25 @@ import {
   type StoredMessage,
   type StoredQuote,
 } from "./lib/storage.js";
-import { loadSettings, updateSettings } from "./lib/settings.js";
+import { loadSettings, updateSettings, resolveSettings } from "./lib/settings.js";
 import { createSpinner } from "./ui/spinner.js";
 import { exit } from "process";
 
 const DEBUG_MODE = process.env.DEBUG_MODE === "true";
 const MAX_HISTORY_MESSAGES = 20;
 
+// Helper: Factory function to instantiate the correct provider based on settings
+async function getAgent(): Promise<AIProvider> {
+  const settings = await resolveSettings();
+  if (settings.selectedProvider === "openai") {
+    return new OpenAIProvider();
+  }
+  return new CopilotProvider();
+}
+
 // Helper: collect multiple agent 'message' events until session goes idle
 const collectAgentMessages = (
-  agent: any,
+  agent: AIProvider,
   onMessage: (m: any, first: boolean) => void,
   maxWaitMs = 30000 // Maximum wait time
 ): Promise<void> => {
@@ -36,45 +45,40 @@ const collectAgentMessages = (
     let accumulatedContent = "";
 
     let cleanup = () => {
-      try {
-        agent.removeListener("message", messageHandler);
-        // Note: We don't remove the session event listener as it's managed by the agent
-      } catch (e) {
-        /* ignore */
-      }
+      // We rely on the unified onMessage method from AIProvider interface
       if (maxWaitTimer) clearTimeout(maxWaitTimer);
     };
 
-    const messageHandler = (m: any) => {
+    const messageHandler = (content: string) => {
       if (DEBUG_MODE) {
         console.log("[collector] received agent message event");
       }
 
       // Handle streaming content (accumulate deltas)
-      if (m.content) {
+      if (content) {
         // If this looks like a delta (short content), accumulate it
-        if (m.content.length < 50 && !m.content.includes("\n")) {
-          accumulatedContent += m.content;
+        if (content.length < 50 && !content.includes("\n")) {
+          accumulatedContent += content;
           return; // Don't emit individual deltas
         } else {
           // This is a complete message or we have accumulated content
           if (accumulatedContent) {
-            m.content = accumulatedContent + m.content;
+            content = accumulatedContent + content;
             accumulatedContent = "";
           }
 
-          onMessage(m, first);
+          onMessage({ content }, first);
           first = false;
           hasContent = true;
         }
       }
     };
 
-    // Listen for session idle event through the agent's session
-    const originalSession = agent.session;
-    if (originalSession) {
+    // Listen for session idle event through the agent's session emitter if available
+    const originalSession = (agent as any).session;
+    if (originalSession && originalSession.on) {
       const sessionIdleHandler = (event: any) => {
-        if (event.type === "session.idle") {
+        if (event.type === "session.idle" || event === "session.idle") {
           if (DEBUG_MODE) {
             console.log("[collector] session idle detected, finishing collection");
           }
@@ -89,15 +93,13 @@ const collectAgentMessages = (
         }
       };
 
-      // Listen to the raw session events
-      originalSession.on(sessionIdleHandler);
+      originalSession.on("session.idle", sessionIdleHandler);
 
-      // Clean up session listener too
       const originalCleanup = cleanup;
       cleanup = () => {
         originalCleanup();
         try {
-          originalSession.off?.(sessionIdleHandler);
+          originalSession.removeListener("session.idle", sessionIdleHandler);
         } catch (e) {
           /* ignore */
         }
@@ -123,7 +125,8 @@ const collectAgentMessages = (
       }
     }, maxWaitMs);
 
-    agent.on("message", messageHandler);
+    // Register our callback using the AIProvider interface method
+    agent.onMessage(messageHandler);
   });
 };
 
@@ -175,33 +178,35 @@ async function settingsFlow(mainRl: readline.Interface): Promise<void> {
   mainLineListeners.forEach((l) => mainRl.removeListener("line", l as any));
 
   try {
-    const settings = await loadSettings();
+    const settings = await resolveSettings();
     console.log("\n🔧 Settings\n");
+    console.log(`Current SELECTED_PROVIDER: ${settings.selectedProvider || "not set"}`);
     console.log(`Current NOTION_API_KEY: ${maskValue(settings.notionApiKey)}`);
     console.log(`Current NOTION_PAGE_ID: ${maskValue(settings.notionPageId)}`);
     console.log(`Current EXCHANGE_RATE_API_KEY: ${maskValue(settings.exchangeRateApiKey)}`);
+    console.log(`Current OPENAI_API_KEY: ${maskValue(settings.openaiApiKey)}`);
     console.log("\nEnter a value to update, press Enter to keep, or type 'clear' to remove.\n");
 
     mainRl.resume();
+    const providerInput = await promptQuestion(mainRl, "SELECTED_PROVIDER (copilot/openai): ");
     const notionApiKeyInput = await promptQuestion(mainRl, "NOTION_API_KEY: ");
     const notionPageIdInput = await promptQuestion(mainRl, "NOTION_PAGE_ID: ");
     const exchangeRateApiKeyInput = await promptQuestion(mainRl, "EXCHANGE_RATE_API_KEY: ");
+    const openaiApiKeyInput = await promptQuestion(mainRl, "OPENAI_API_KEY: ");
 
+    const selectedProvider = parseSettingsInput(providerInput);
     const notionApiKey = parseSettingsInput(notionApiKeyInput);
     const notionPageId = parseSettingsInput(notionPageIdInput);
     const exchangeRateApiKey = parseSettingsInput(exchangeRateApiKeyInput);
+    const openaiApiKey = parseSettingsInput(openaiApiKeyInput);
 
-    let newSettings = {};
+    let newSettings: any = {};
 
-    if (notionApiKey !== undefined) {
-      newSettings = { ...newSettings, notionApiKey: notionApiKey };
-    }
-    if (notionPageId !== undefined) {
-      newSettings = { ...newSettings, notionPageId: notionPageId };
-    }
-    if (exchangeRateApiKey !== undefined) {
-      newSettings = { ...newSettings, exchangeRateApiKey: exchangeRateApiKey };
-    }
+    if (selectedProvider !== undefined) newSettings.selectedProvider = selectedProvider;
+    if (notionApiKey !== undefined) newSettings.notionApiKey = notionApiKey;
+    if (notionPageId !== undefined) newSettings.notionPageId = notionPageId;
+    if (exchangeRateApiKey !== undefined) newSettings.exchangeRateApiKey = exchangeRateApiKey;
+    if (openaiApiKey !== undefined) newSettings.openaiApiKey = openaiApiKey;
 
     await updateSettings(newSettings);
 
@@ -209,9 +214,11 @@ async function settingsFlow(mainRl: readline.Interface): Promise<void> {
       input === undefined ? "unchanged" : input === null ? "cleared" : "updated";
 
     console.log("\n✅ Settings saved.");
+    console.log(`SELECTED_PROVIDER: ${status(selectedProvider)}`);
     console.log(`NOTION_API_KEY: ${status(notionApiKey)}`);
     console.log(`NOTION_PAGE_ID: ${status(notionPageId)}`);
-    console.log(`EXCHANGE_RATE_API_KEY: ${status(exchangeRateApiKey)}\n`);
+    console.log(`EXCHANGE_RATE_API_KEY: ${status(exchangeRateApiKey)}`);
+    console.log(`OPENAI_API_KEY: ${status(openaiApiKey)}\n`);
   } catch (error) {
     console.log("\n❌ Failed to update settings.\n");
     if (DEBUG_MODE) console.error(error);
@@ -310,8 +317,8 @@ async function createQuoteFlow(brief: string, mainRl: readline.Interface): Promi
       mainLineListeners.forEach((l) => mainRl.removeListener("line", l as any));
       mainRl.pause();
 
-      // init the chatbot session here
-      const agent = new CopilotProvider();
+      // Dynamically instantiate the selected agent
+      const agent = await getAgent();
       const sessionId = generateSessionId();
       const sessionCreatedAt = new Date().toISOString();
       const storedMessages: StoredMessage[] = [];
@@ -362,8 +369,6 @@ async function createQuoteFlow(brief: string, mainRl: readline.Interface): Promi
             if (input === "/close") {
               console.log("\n✅ Quote session complete! Saving...\n");
               // Ask for final summary and wait for reply
-              // Show loading, then clear it when summary arrives
-              // Show inline loading and request a final summary, then collect messages
               process.stdout.write("\x1b[1m\x1b[35m🤖 Agent is responding...\x1b[0m");
               await agent.sendMessage(
                 "Please provide a final summary of the quote we discussed, formatted nicely."
@@ -486,7 +491,7 @@ async function openQuoteFlow(session: StoredQuote, mainRl: readline.Interface): 
     mainLineListeners.forEach((l) => mainRl.removeListener("line", l as any));
     mainRl.pause();
 
-    const agent: AIProvider = new CopilotProvider();
+    const agent = await getAgent();
     const storedMessages: StoredMessage[] = [...session.messages];
     let finalSummary: string | undefined = session.finalSummary;
 
@@ -716,29 +721,27 @@ async function runCli() {
 
     displayHeader();
 
-    // Check that the user has access to Copilot and is logged in
+    // Dynamically retrieve the configured agent
+    const agent = await getAgent();
+    const agentName = agent.name;
 
     // Show "checking auth message with spinner"
-    const spinner = createSpinner("Checking Copilot authentication...");
+    const spinner = createSpinner(`Initializing ${agentName} provider...`);
     spinner.start();
 
-    const authStatus = await checkAuth();
-
-    // Clear the checking auth line
-    process.stdout.write("\x1b[1A\x1b[2K");
-
-    if (!authStatus.isAuthenticated) {
-      spinner.stop("\n\x1b[1m\x1b[31m❌ You are not authenticated with GitHub Copilot. Please log in and try again.");
+    // Verify authentication and perform setup for the selected provider
+    try {
+      await agent.initialize();
+      spinner.stop(`\n\x1b[1;94m✅ Successfully connected to ${agentName}! You can now use the Quote CLI.\x1b[0m\n`);
+    } catch (err: any) {
+      spinner.stop(`\n\x1b[1m\x1b[31m❌ Connection failed: ${err.message}\x1b[0m\n`);
       exit(1);
     }
 
-    spinner.stop(`\n\x1b[1;94m✅ Logged in as ${authStatus.login}! You can now use the Quote CLI.\x1b[0m\n`);
     // Show Menu
-
     displayMenu();
 
     // Set up readline interface for user input
-    
     const mainRl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,

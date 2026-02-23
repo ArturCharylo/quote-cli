@@ -4,8 +4,7 @@ import OpenAI from "openai";
 import { EventEmitter } from "events";
 import type { AIProvider, AgentMessageReceived } from "./types.js";
 import { resolveSettings } from "../../lib/settings.js";
-// Note: We will need to adapt tools for OpenAI later
-import { currencyConversionTool, servicePricingLookupTool } from "../tools.js";
+import { fetchPricingFromNotion, convertCurrency, openaiToolsDefinitions } from "../tools.js";
 import { PROMPT } from "./constants.js";
 
 const DEBUG_MODE = process.env.DEBUG_MODE === "true";
@@ -82,41 +81,110 @@ export class OpenAIProvider extends EventEmitter implements AIProvider {
     this.messageHistory.push({ role: "user", content: message });
 
     try {
-      // NOTE: We will need to inject tools here in the next steps
-      const stream = await this.client.chat.completions.create({
-        model: "gpt-5.2-chat-latest",
-        messages: this.messageHistory,
-        stream: true,
-      });
-
-      let fullResponse = "";
-
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content || "";
-        if (content) {
-          fullResponse += content;
-        }
-      }
-
-      // Add assistant response to history
-      this.messageHistory.push({ role: "assistant", content: fullResponse });
-
-      // Emit the full response once the stream is complete
-      this.emit("message", {
-        type: "assistant.message",
-        content: fullResponse
-      } as AgentMessageReceived);
-
-      this.session.emit("session.idle", {type: "session.idle"});
-
+      await this.processChatCompletion();
+      
+      // Signal to the CLI collector that the agent has finished processing
+      this.session.emit("session.idle", { type: "session.idle" });
     } catch (error) {
       if (DEBUG_MODE) console.error("[openai] Error generating response:", error);
       this.emit("error", new Error("Failed to communicate with OpenAI"));
     }
   }
 
+  /**
+   * Handles the core interaction with OpenAI, including tool calls execution
+   */
+  private async processChatCompletion(): Promise<void> {
+    if (!this.client) return;
+
+    const stream = await this.client.chat.completions.create({
+      model: "gpt-5.2-chat-latest",
+      messages: this.messageHistory,
+      tools: openaiToolsDefinitions,
+      stream: true,
+    });
+
+    let fullResponse = "";
+    const toolCalls: any[] = [];
+
+    // Accumulate chunks from the stream
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+      
+      if (delta?.content) {
+        fullResponse += delta.content;
+      }
+
+      // Reconstruct tool calls from streaming chunks
+      if (delta?.tool_calls) {
+        for (const toolCall of delta.tool_calls) {
+          const index = toolCall.index;
+          if (!toolCalls[index]) {
+            toolCalls[index] = {
+              id: toolCall.id,
+              type: "function",
+              function: { name: toolCall.function?.name || "", arguments: "" }
+            };
+          }
+          if (toolCall.function?.arguments) {
+            toolCalls[index].function.arguments += toolCall.function.arguments;
+          }
+        }
+      }
+    }
+
+    // Handle tool execution if the model requested it
+    if (toolCalls.length > 0) {
+      if (DEBUG_MODE) console.log(`[openai] Intercepted ${toolCalls.length} tool calls`);
+
+      // Append the assistant's tool call request to history
+      this.messageHistory.push({
+        role: "assistant",
+        content: fullResponse || null,
+        tool_calls: toolCalls
+      });
+
+      // Execute each requested tool sequentially
+      for (const tc of toolCalls) {
+        let toolResult = "";
+        
+        try {
+          if (tc.function.name === "servicePricingLookupTool") {
+            toolResult = await fetchPricingFromNotion();
+          } else if (tc.function.name === "convert_currency") {
+            const args = JSON.parse(tc.function.arguments);
+            toolResult = await convertCurrency(args.amount, args.fromCurrency, args.toCurrency);
+          } else {
+            toolResult = `Error: Unknown function ${tc.function.name}`;
+          }
+        } catch (err: any) {
+          toolResult = `Error executing tool: ${err.message}`;
+        }
+
+        // Append the tool's result to history
+        this.messageHistory.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: toolResult
+        });
+      }
+
+      // Recursively call the API with the new context containing tool results
+      return this.processChatCompletion();
+    }
+
+    // If no tools were called, it's a standard text response
+    if (fullResponse) {
+      this.messageHistory.push({ role: "assistant", content: fullResponse });
+      
+      this.emit("message", {
+        type: "assistant.message",
+        content: fullResponse
+      } as AgentMessageReceived);
+    }
+  }
+
   async endSession(): Promise<void> {
-    // OpenAI doesn't have a persistent connection to destroy like Copilot does
     this.messageHistory = [];
     this.emit("ended");
   }
