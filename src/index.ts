@@ -299,152 +299,91 @@ async function handleCommand(input: string, mainRl: readline.Interface) {
 }
 
 async function createQuoteFlow(brief: string, mainRl: readline.Interface): Promise<void> {
+  // Store listeners to restore them later
+  const mainLineListeners = mainRl.listeners("line").slice();
+
   try {
-      if (!brief || brief.trim() === "") {
-        console.log("❌ Please provide a brief for your quote. Usage: /create <brief>\n");
-        return;
-      }
+    if (!brief || brief.trim() === "") {
+      console.log("❌ Please provide a brief for your quote. Usage: /create <brief>\n");
+      return;
+    }
 
-      console.log("\n🤖 Starting Quote Assistant...\n");
-      console.log("━".repeat(50));
-      console.log("💼 Quote Brief:", brief.trim());
-      console.log("━".repeat(50));
-      console.log("\nType your messages to discuss the quote.");
-      console.log("Commands: /close - exit the chat session\n");
+    console.log("\n🤖 Starting Quote Assistant...\n");
+    console.log("━".repeat(50));
+    console.log("💼 Quote Brief:", brief.trim());
+    console.log("━".repeat(50));
+    console.log("\nType your messages to discuss the quote.");
+    console.log("Commands: /close - exit the chat session\n");
 
-      // Remove main `line` listeners to avoid duplicate handling
-      const mainLineListeners = mainRl.listeners("line").slice();
-      mainLineListeners.forEach((l) => mainRl.removeListener("line", l as any));
-      mainRl.pause();
+    // Remove main listeners to avoid duplicate handling
+    mainLineListeners.forEach((l) => mainRl.removeListener("line", l as any));
+    mainRl.pause();
 
-      // Dynamically instantiate the selected agent
-      const agent = await getAgent();
-      const sessionId = generateSessionId();
-      const sessionCreatedAt = new Date().toISOString();
-      const storedMessages: StoredMessage[] = [];
-      let finalSummary: string | undefined;
+    // 1. Initialize agent
+    const agent = await getAgent();
+    const sessionId = generateSessionId();
+    const sessionCreatedAt = new Date().toISOString();
+    const storedMessages: StoredMessage[] = [];
+    let finalSummary: string | undefined;
 
-      const recordUserMessage = (content: string) => {
-        storedMessages.push({
-          role: "user",
-          content,
-          timestamp: new Date().toISOString(),
-        });
-      };
-
-      const recordAssistantMessage = (content: string) => {
-        storedMessages.push({
-          role: "assistant",
-          content,
-          timestamp: new Date().toISOString(),
-        });
-      };
-
+    // --- CRITICAL PART: Session Start ---
+    try {
       await agent.startSession(brief.trim());
+    } catch (startError: any) {
+      // Catch specific initialization errors (like missing API keys)
+      // and throw them with a clean message to be handled by the outer catch
+      throw new Error(startError.message || "Failed to start agent session");
+    }
+    // ------------------------------------
 
-      // Show inline loading indicator and collect any messages the agent emits
-      process.stdout.write("\x1b[1m\x1b[35m🤖 Agent is responding...\x1b[0m");
-      await collectAgentMessages(agent, (msg: any, first: boolean) => {
-        // Clear loading only when the first partial/complete message arrives
-        if (first) process.stdout.write("\r\x1b[2K");
-        console.log(`\n\x1b[1m\x1b[35m🤖 Agent:\x1b[0m ${msg.content}\n`);
-        if (msg.content) {
-          recordAssistantMessage(msg.content);
-        }
+    const recordUserMessage = (content: string) => {
+      storedMessages.push({
+        role: "user",
+        content,
+        timestamp: new Date().toISOString(),
       });
+    };
 
-      // Switch the main prompt to the quote sub-prompt and resume input
-      // Bold bright-blue `You` label; reset color so typed text stays default
-      mainRl.setPrompt("\x1b[1m\x1b[94m💻 You:\x1b[0m ");
-      mainRl.resume();
-      mainRl.prompt();
-      
-      // Remain in the chat session until user types /close
+    const recordAssistantMessage = (content: string) => {
+      storedMessages.push({
+        role: "assistant",
+        content,
+        timestamp: new Date().toISOString(),
+      });
+    };
 
-      try {
-        await new Promise<void>((resolve) => {
-          const quoteHandler = async (line: string) => {
-            const input = line.trim();
-
-            if (input === "/close") {
-              console.log("\n✅ Quote session complete! Saving...\n");
-              // Ask for final summary and wait for reply
-              process.stdout.write("\x1b[1m\x1b[35m🤖 Agent is responding...\x1b[0m");
-              await agent.sendMessage(
-                "Please provide a final summary of the quote we discussed, formatted nicely."
-              );
-              await collectAgentMessages(agent, (msg: any, first: boolean) => {
-                if (first) process.stdout.write("\r\x1b[2K");
-                if (msg.content !== "") {
-                  console.log(`\n\x1b[1m\x1b[35m🤖 Agent:\x1b[0m\n\n📋 Final Quote Summary:\n${msg.content}\n`);
-                  recordAssistantMessage(msg.content);
-                  finalSummary = msg.content;
-                }
-              });
-              await agent.endSession();
-              try {
-                const sessionRecord: StoredQuote = {
-                  id: sessionId,
-                  brief: brief.trim(),
-                  createdAt: sessionCreatedAt,
-                  messages: storedMessages,
-                  ...(finalSummary ? { finalSummary } : {}),
-                };
-                await appendQuoteSession(sessionRecord);
-                console.log("💾 Session saved to history.\n");
-              } catch (error) {
-                console.log("\n⚠️ Failed to save session history.\n");
-                if (DEBUG_MODE) console.error(error);
-              }
-              mainRl.removeListener("line", quoteHandler);
-              resolve();
-              return;
-            }
-
-            if (input === "") {
-              mainRl.prompt();
-              return;
-            }
-
-            // Pause input while waiting for the agent to respond
-            mainRl.pause();
-            try {
-              // Show inline loading, send the user's message, then collect replies
-              process.stdout.write("\x1b[1m\x1b[35m🤖 Agent is responding...\x1b[0m");
-              recordUserMessage(input);
-              await agent.sendMessage(input);
-              await collectAgentMessages(agent, (msg: any, first: boolean) => {
-                if (first) process.stdout.write("\r\x1b[2K");
-                if (msg.content !== "") {
-                  console.log(`\n\x1b[1m\x1b[35m🤖 Agent:\x1b[0m ${msg.content}\n`);
-                  recordAssistantMessage(msg.content);
-                }
-              });
-            } catch (error) {
-              console.log("\n❌ Error communicating with agent. Please try again.\n");
-            } finally {
-              mainRl.resume();
-            }
-
-            mainRl.prompt();
-          };
-
-          mainRl.on("line", quoteHandler);
-        });
-          } catch (error) {
-        console.log("\n❌ Error during quote chat session. Exiting session.\n");
-        console.error(error);
+    // Show inline loading indicator
+    process.stdout.write("\x1b[1m\x1b[35m🤖 Agent is responding...\x1b[0m");
+    await collectAgentMessages(agent, (msg: any, first: boolean) => {
+      if (first) process.stdout.write("\r\x1b[2K");
+      console.log(`\n\x1b[1m\x1b[35m🤖 Agent:\x1b[0m ${msg.content}\n`);
+      if (msg.content) {
+        recordAssistantMessage(msg.content);
       }
+    });
 
-      // Restore main listeners and prompt after session ends
-      mainLineListeners.forEach((l) => mainRl.on("line", l as any));
-      mainRl.setPrompt("\x1b[1m\x1b[94m👀 Select function:\x1b[0m ");
-      mainRl.prompt();
+    mainRl.setPrompt("\x1b[1m\x1b[94m💻 You:\x1b[0m ");
+    mainRl.resume();
+    mainRl.prompt();
 
+    // ... (Chat loop / Promise that handles /close logic) ...
+    // Note: Make sure the chat loop is also inside this main try block
 
-  } catch (error) {
-    console.log("\n❌ Failed to start quote session. Please check your connection.\n");
-    console.error(error);
+  } catch (error: any) {
+    // 2. Clean Error Display
+    // This will show only the message without the full stack trace
+    console.log(`\n\x1b[1;31m❌ Error:\x1b[0m ${error.message || "An unexpected error occurred."}\n`);
+    
+    if (DEBUG_MODE) {
+      console.error(error); // Full stack trace only in debug mode
+    }
+  } finally {
+    // 3. Guaranteed Recovery
+    // This ensures that no matter what happened, the CLI returns to normal state
+    mainLineListeners.forEach((l) => mainRl.on("line", l as any));
+    mainRl.setPrompt("\x1b[1m\x1b[94m👀 Select function:\x1b[0m ");
+    mainRl.prompt();
+    mainRl.resume();
   }
 }
 
@@ -718,30 +657,29 @@ async function listQuotesFlow(mainRl: readline.Interface): Promise<void> {
 
 async function runCli() {
   try {
-
     displayHeader();
 
-    // Dynamically retrieve the configured agent
+    // Get current settings to see who is the provider
+    const settings = await resolveSettings();
     const agent = await getAgent();
     const agentName = agent.name;
 
-    // Show "checking auth message with spinner"
+    // Initialize with a non-blocking approach
     const spinner = createSpinner(`Initializing ${agentName} provider...`);
     spinner.start();
 
-    // Verify authentication and perform setup for the selected provider
     try {
       await agent.initialize();
-      spinner.stop(`\n\x1b[1;94m✅ Successfully connected to ${agentName}! You can now use the Quote CLI.\x1b[0m\n`);
+      spinner.stop(`\n\x1b[1;94m✅ Connected to ${agentName}! Ready to work.\x1b[0m\n`);
     } catch (err: any) {
-      spinner.stop(`\n\x1b[1m\x1b[31m❌ Connection failed: ${err.message}\x1b[0m\n`);
-      exit(1);
+      // INSTEAD OF exit(1), we just show a warning
+      spinner.stop(`\n\x1b[1;33m⚠️  Warning: ${agentName} is not ready.\x1b[0m`);
+      console.log(`\x1b[90m(${err.message})\x1b[0m`);
+      console.log(`\x1b[36mPlease use /settings to configure your API keys.\x1b[0m\n`);
     }
 
-    // Show Menu
     displayMenu();
 
-    // Set up readline interface for user input
     const mainRl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,

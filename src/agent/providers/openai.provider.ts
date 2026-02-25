@@ -69,7 +69,6 @@ export class OpenAIProvider extends EventEmitter implements AIProvider {
         await this.sendMessage(`Here is the brief for the quote:\n\n${brief}`);
       }
     } catch (error) {
-      console.log("\n❌ Failed to start OpenAI session.\n");
       throw error;
     }
   }
