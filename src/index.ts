@@ -2,6 +2,7 @@ import * as readline from "readline";
 import { displayHeader } from "./ui/header.js";
 import { CopilotProvider } from "./agent/providers/copilot.provider.js";
 import { OpenAIProvider } from "./agent/providers/openai.provider.js";
+import { AnthropicProvider } from "./agent/providers/anthropic.provider.js";
 import type { AIProvider } from "./agent/providers/types.js";
 import { displayMenu } from "./ui/menu.js";
 import {
@@ -22,10 +23,11 @@ const MAX_HISTORY_MESSAGES = 20;
 // Helper: Factory function to instantiate the correct provider based on settings
 async function getAgent(): Promise<AIProvider> {
   const settings = await resolveSettings();
-  if (settings.selectedProvider === "openai") {
-    return new OpenAIProvider();
+  switch (settings.selectedProvider) {
+    case "openai": return new OpenAIProvider();
+    case "anthropic": return new AnthropicProvider(); // <-- DODANE
+    default: return new CopilotProvider();
   }
-  return new CopilotProvider();
 }
 
 // Helper: collect multiple agent 'message' events until session goes idle
@@ -188,17 +190,19 @@ async function settingsFlow(mainRl: readline.Interface): Promise<void> {
     console.log("\nEnter a value to update, press Enter to keep, or type 'clear' to remove.\n");
 
     mainRl.resume();
-    const providerInput = await promptQuestion(mainRl, "SELECTED_PROVIDER (copilot/openai): ");
+    const providerInput = await promptQuestion(mainRl, "SELECTED_PROVIDER (copilot/openai/anthropic): ");
     const notionApiKeyInput = await promptQuestion(mainRl, "NOTION_API_KEY: ");
     const notionPageIdInput = await promptQuestion(mainRl, "NOTION_PAGE_ID: ");
     const exchangeRateApiKeyInput = await promptQuestion(mainRl, "EXCHANGE_RATE_API_KEY: ");
     const openaiApiKeyInput = await promptQuestion(mainRl, "OPENAI_API_KEY: ");
+    const anthropicApiKeyInput = await promptQuestion(mainRl, "ANTHROPIC_API_KEY: ");
 
     const selectedProvider = parseSettingsInput(providerInput);
     const notionApiKey = parseSettingsInput(notionApiKeyInput);
     const notionPageId = parseSettingsInput(notionPageIdInput);
     const exchangeRateApiKey = parseSettingsInput(exchangeRateApiKeyInput);
     const openaiApiKey = parseSettingsInput(openaiApiKeyInput);
+    const anthropicApiKey = parseSettingsInput(anthropicApiKeyInput);
 
     let newSettings: any = {};
 
@@ -207,6 +211,7 @@ async function settingsFlow(mainRl: readline.Interface): Promise<void> {
     if (notionPageId !== undefined) newSettings.notionPageId = notionPageId;
     if (exchangeRateApiKey !== undefined) newSettings.exchangeRateApiKey = exchangeRateApiKey;
     if (openaiApiKey !== undefined) newSettings.openaiApiKey = openaiApiKey;
+    if (anthropicApiKey !== undefined) newSettings.anthropicApiKey = anthropicApiKey;
 
     await updateSettings(newSettings);
 
@@ -218,7 +223,8 @@ async function settingsFlow(mainRl: readline.Interface): Promise<void> {
     console.log(`NOTION_API_KEY: ${status(notionApiKey)}`);
     console.log(`NOTION_PAGE_ID: ${status(notionPageId)}`);
     console.log(`EXCHANGE_RATE_API_KEY: ${status(exchangeRateApiKey)}`);
-    console.log(`OPENAI_API_KEY: ${status(openaiApiKey)}\n`);
+    console.log(`OPENAI_API_KEY: ${status(openaiApiKey)}`);
+    console.log(`ANTHROPIC_API_KEY: ${status(anthropicApiKey)}`);
   } catch (error) {
     console.log("\n❌ Failed to update settings.\n");
     if (DEBUG_MODE) console.error(error);

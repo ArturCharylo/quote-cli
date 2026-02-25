@@ -5,6 +5,7 @@ import path from "path";
 export interface SettingsStore {
   notionApiKey?: string | undefined;
   openaiApiKey?: string | undefined;
+  anthropicApiKey?: string | undefined;
   selectedProvider?: string | undefined;
   notionPageId?: string | undefined;
   exchangeRateApiKey?: string | undefined;
@@ -53,6 +54,7 @@ export async function updateSettings(
     exchangeRateApiKey?: string | null;
     systemPrompt?: string | null;
     openaiApiKey?: string | undefined;
+    anthropicApiKey?: string | undefined;
     selectedProvider?: string | undefined;
   }
 ): Promise<SettingsStore> {
@@ -69,6 +71,8 @@ export async function updateSettings(
     partial.systemPrompt === null ? undefined : partial.systemPrompt ?? existing.systemPrompt;
   const nextOpenAIApiKey =
     partial.openaiApiKey === null ? undefined : partial.openaiApiKey ?? existing.openaiApiKey;
+  const nextAnthropicApiKey =
+    partial.anthropicApiKey === null ? undefined : partial.anthropicApiKey ?? existing.anthropicApiKey;
   const nextSelectedProvider =
     partial.selectedProvider === null ? undefined : partial.selectedProvider ?? existing.selectedProvider;
 
@@ -78,6 +82,7 @@ export async function updateSettings(
     ...(nextExchangeRateApiKey !== undefined ? { exchangeRateApiKey: nextExchangeRateApiKey } : {}),
     ...(nextSystemPrompt !== undefined ? { systemPrompt: nextSystemPrompt } : {}),
     ...(nextOpenAIApiKey !== undefined ? { openaiApiKey: nextOpenAIApiKey } : {}),
+    ...(nextAnthropicApiKey !== undefined ? { anthropicApiKey: nextAnthropicApiKey } : {}),
     ...(nextSelectedProvider !== undefined ? { selectedProvider: nextSelectedProvider } : {}),
   };
   await saveSettings(merged);
@@ -90,6 +95,7 @@ export async function resolveSettings(): Promise<{
   exchangeRateApiKey?: string;
   systemPrompt?: string;
   openaiApiKey?: string | undefined;
+  anthropicApiKey?: string | undefined;
   selectedProvider?: string | undefined;
 }> {
   const settings = await loadSettings();
@@ -99,6 +105,7 @@ export async function resolveSettings(): Promise<{
     exchangeRateApiKey: settings.exchangeRateApiKey ?? (process.env.EXCHANGE_RATE_API_KEY as string),
     systemPrompt: settings.systemPrompt ?? "",
     openaiApiKey: settings.openaiApiKey ?? (process.env.OPENAI_API_KEY as string),
+    anthropicApiKey: settings.anthropicApiKey ?? (process.env.ANTHROPIC_API_KEY as string),
     selectedProvider: settings.selectedProvider ?? "github-copilot",
   };
 }
