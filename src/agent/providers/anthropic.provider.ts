@@ -102,7 +102,7 @@ export class AnthropicProvider extends EventEmitter implements AIProvider {
     ];
 
     const response = await this.client.messages.create({
-      model: "claude-3-5-sonnet-20240620",
+      model: "claude-4.6-20240924",
       max_tokens: 4096,
       system: systemPrompt,
       messages: this.messageHistory,
